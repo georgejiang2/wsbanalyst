@@ -2,7 +2,7 @@ import praw
 import time
 from datetime import datetime, timedelta
 
-# Initialize Reddit API using PRAW (Python Reddit API Wrapper)
+
 reddit = praw.Reddit(client_id='arfcXl0wxWzmPnMBXnhPmA',
                      client_secret='9U6IMEUynxZ2hQhx8CbT1-K3vrxVGw',
                      user_agent='wsbscraper (by u/Appropriate_Still445)')
@@ -10,29 +10,28 @@ reddit = praw.Reddit(client_id='arfcXl0wxWzmPnMBXnhPmA',
 
 import json
 
+# json format
 def save_to_json(posts, filename="wsb_posts.json"):
     with open(filename, 'w') as f:
         json.dump(posts, f, indent=4)
     print(f"Saved {len(posts)} posts to {filename}")
 
 
-# Function to get posts from WSB from the past week
-def get_wsb_posts_past_week(subreddit='wallstreetbets'):
+# get post from _ days ago
+def get_wsb_posts(subreddit='wallstreetbets', days=1):
     posts = []
     
-    # Calculate timestamp for one week ago
-    one_week_ago = datetime.now() - timedelta(days=1)
-    one_week_ago_timestamp = int(one_week_ago.timestamp())
+    days_ago = datetime.now() - timedelta(days=days)
+    days_ago_timestamp = int(days_ago.timestamp())
     
-    # Use search with time filter
     for submission in reddit.subreddit(subreddit).new(limit=None):
-        # Stop when we reach posts older than a week
-        if submission.created_utc < one_week_ago_timestamp:
+
+        if submission.created_utc < days_ago_timestamp:
             break
 
         post_url = submission.url
         
-        # Check if it's a self post or a link post
+        # url broken for some reason still
         if submission.is_self:
             post_url = f"https://www.reddit.com{submission.permalink}"
 
@@ -49,5 +48,5 @@ def get_wsb_posts_past_week(subreddit='wallstreetbets'):
     
     return posts
 
-wsb_posts = get_wsb_posts_past_week()
+wsb_posts = get_wsb_posts(days=1)
 save_to_json(wsb_posts)
