@@ -1,0 +1,7 @@
+json
+pandas
+nltk
+spacy
+yfinance
+tqdm
+praw
