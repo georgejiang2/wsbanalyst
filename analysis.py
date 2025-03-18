@@ -48,7 +48,7 @@ def extract_tickers(text):
     cleaned_tickers = [ticker.replace('$', '') for ticker in potential_tickers]
     
     # Filter out common non-ticker capital words
-    common_words = {'A', 'I', 'ME', 'MY', 'THE', 'OF', 'DD', 'CEO', 'IPO', 'EPS', 'ATH', 'PE', 
+    common_words = {'CEO', 'IPO', 'EPS', 'ATH', 'PE', 
                    'AM', 'PM', 'EST', 'PST', 'EDT', 'PDT', 'USA', 'IMO', 'YOLO', 'FOMO', 'FD'}
     
     filtered_tickers = [ticker for ticker in cleaned_tickers if ticker not in common_words]
@@ -168,8 +168,7 @@ def save_analyzed_posts(posts, filename="wsb_sentiment_analysis.csv"):
     # Remove rows where 'sentiment' is 'Unknown'
     df = df[df['sentiment'] != 'Unknown']
 
-    # Drop the columns 'post_id', 'title', and 'url'
-    df = df.drop(columns=['post_id', 'title', 'url', 'upvotes'])
+    df = df.drop(columns=['post_id', 'title', 'upvotes'])
     df.to_csv(filename, index=False)
     print(f"Saved {len(posts)} analyzed posts to {filename}")
 
