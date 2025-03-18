@@ -21,7 +21,7 @@ def get_wsb_posts_past_week(subreddit='wallstreetbets'):
     posts = []
     
     # Calculate timestamp for one week ago
-    one_week_ago = datetime.now() - timedelta(days=7)
+    one_week_ago = datetime.now() - timedelta(days=1)
     one_week_ago_timestamp = int(one_week_ago.timestamp())
     
     # Use search with time filter
@@ -29,14 +29,21 @@ def get_wsb_posts_past_week(subreddit='wallstreetbets'):
         # Stop when we reach posts older than a week
         if submission.created_utc < one_week_ago_timestamp:
             break
-            
+
+        post_url = submission.url
+        
+        # Check if it's a self post or a link post
+        if submission.is_self:
+            post_url = f"https://www.reddit.com{submission.permalink}"
+
         posts.append({
             'title': submission.title,
+            'text': submission.selftext,
             'id': submission.id,
             'upvotes': submission.score,
             'comments': [comment.body for comment in submission.comments.list()[:10] if hasattr(comment, 'body')],
             'created_at': datetime.fromtimestamp(submission.created_utc).strftime('%Y-%m-%d %H:%M:%S'),
-            'url': submission.url
+            'url': post_url
         })
         print("currently processing date:" + datetime.fromtimestamp(submission.created_utc).strftime('%Y-%m-%d %H:%M:%S'))
     

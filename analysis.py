@@ -43,13 +43,12 @@ def extract_tickers(text):
     # Pattern for tickers (1-5 capital letters, sometimes with $ prefix)
     ticker_pattern = r'[$]?[A-Z]{1,5}\b'
     potential_tickers = re.findall(ticker_pattern, text)
-    
     # Clean tickers (remove $ if present)
     cleaned_tickers = [ticker.replace('$', '') for ticker in potential_tickers]
     
     # Filter out common non-ticker capital words
-    common_words = {'CEO', 'IPO', 'EPS', 'ATH', 'PE', 
-                   'AM', 'PM', 'EST', 'PST', 'EDT', 'PDT', 'USA', 'IMO', 'YOLO', 'FOMO', 'FD'}
+    common_words = {'CEO', 'IPO', 'EPS', 'ATH', 'PE', 'OP', 'DD', 'LMAO', 'LMFAO', 'K', 'YOU', 'IT', 'BUY', 'DIP', 'BLK', 'FTC', 'A', 'BOOM', 'O', 'AS', 'BE', 'RSI', 'FOR', 'USD', 'CAD',
+                   'AM', 'PM', 'EST', 'PST', 'EDT', 'PDT', 'USA', 'IMO', 'YOLO', 'FOMO', 'FD', 'KONG', 'HIMS', 'UK'}
     
     filtered_tickers = [ticker for ticker in cleaned_tickers if ticker not in common_words]
     
@@ -57,6 +56,8 @@ def extract_tickers(text):
     verified_tickers = []
     for ticker in set(filtered_tickers):  # Use set to remove duplicates
         try:
+            if ticker == "SPX":
+                continue
             info = yf.Ticker(ticker).info
             if 'regularMarketPrice' in info and info['regularMarketPrice'] is not None:
                 verified_tickers.append(ticker)
@@ -66,17 +67,19 @@ def extract_tickers(text):
     return verified_tickers
 
 def analyze_post_sentiment(post):
-    """Analyze a WSB post to determine buy/sell sentiment for mentioned tickers"""
+    """Analyze a WSB post to determine buy/sell sentiment for each mentioned ticker"""
     # Combine title and post text
     full_text = post['title']
-    
+    if post['text']:
+        full_text += " " + post['text']
     # Extract tickers
     tickers = extract_tickers(full_text)
     
     # If no tickers found, analyze comments for tickers
-    if not tickers and 'comments' in post:
-        comment_text = " ".join(post['comments'])
-        tickers = extract_tickers(comment_text)
+    # comment_text = ""
+    # if not tickers and 'comments' in post:
+    #     comment_text = " ".join(post['comments'])
+    #     tickers = extract_tickers(comment_text)
     
     # If still no tickers, return empty result
     if not tickers:
@@ -89,33 +92,70 @@ def analyze_post_sentiment(post):
             'confidence': 0
         }
     
-    # Get sentiment score for the entire post content
+    # Get overall sentiment score for the entire post content
     post_content = full_text
     if 'comments' in post:
-        post_content += " " + " ".join(post['comments'][:5])  # Include first 5 comments
+        comment_text = " ".join(post['comments'][:5])  # Include first 5 comments
+        post_content += " " + comment_text
+    
+    overall_sentiment = sia.polarity_scores(post_content)
+    overall_compound = overall_sentiment['compound']
+    
+    # Calculate per-ticker sentiment
+    ticker_sentiments = {}
+    for ticker in tickers:
+        # Find mentions of this ticker in the text
+        ticker_pattern = re.compile(r'\b' + re.escape(ticker) + r'\b')
         
-    sentiment_scores = sia.polarity_scores(post_content)
-    compound_score = sentiment_scores['compound']
-    
-    # Determine if it's a buy or sell signal
-    if compound_score >= 0.2:
-        sentiment = 'buy'
-    elif compound_score <= -0.2:
-        sentiment = 'sell'
-    else:
-        sentiment = 'neutral'
-    
-    # Calculate confidence based on absolute value of sentiment
-    confidence = min(abs(compound_score) * 100, 100)
+        # Get text segments around ticker mentions (30 words before and after)
+        segments = []
+        for text_source in [full_text, comment_text]:
+            if not text_source:
+                continue
+                
+            words = text_source.split()
+            for i, word in enumerate(words):
+                if ticker_pattern.search(word):
+                    start = max(0, i - 30)
+                    end = min(len(words), i + 30)
+                    segment = " ".join(words[start:end])
+                    segments.append(segment)
+        
+        # If no specific segments found, use overall sentiment
+        if not segments:
+            ticker_sentiments[ticker] = {
+                'score': overall_compound,
+                'sentiment': get_sentiment_label(overall_compound),
+                'confidence': min(abs(overall_compound) * 100, 100)
+            }
+        else:
+            # Calculate sentiment for segments containing this ticker
+            ticker_text = " ".join(segments)
+            ticker_score = sia.polarity_scores(ticker_text)['compound']
+            ticker_sentiments[ticker] = {
+                'score': ticker_score,
+                'sentiment': get_sentiment_label(ticker_score),
+                'confidence': min(abs(ticker_score) * 100, 100)
+            }
     
     return {
         'post_id': post['id'],
         'title': post['title'],
         'tickers': tickers,
-        'sentiment': sentiment,
-        'sentiment_score': compound_score,
-        'confidence': confidence
+        'ticker_sentiments': ticker_sentiments,
+        'overall_sentiment': get_sentiment_label(overall_compound),
+        'overall_score': overall_compound,
+        'overall_confidence': min(abs(overall_compound) * 100, 100)
     }
+
+def get_sentiment_label(compound_score):
+    """Convert compound sentiment score to a label"""
+    if compound_score >= 0.2:
+        return 'buy'
+    elif compound_score <= -0.2:
+        return 'sell'
+    else:
+        return 'neutral'
 
 def analyze_from_json(json_file="wsb_posts.json"):
     """Load posts from JSON file and analyze their sentiment"""
@@ -130,17 +170,35 @@ def analyze_from_json(json_file="wsb_posts.json"):
     for post in tqdm(posts, desc="Processing posts"):
         # Analyze sentiment
         sentiment_analysis = analyze_post_sentiment(post)
-        
+        if len(sentiment_analysis['tickers']) == 0:
+            continue
         # Add sentiment analysis to post data
         post_data = post.copy()
         post_data.update({
             'tickers': sentiment_analysis['tickers'],
-            'sentiment': sentiment_analysis['sentiment'],
-            'sentiment_score': sentiment_analysis['sentiment_score'],
-            'confidence': sentiment_analysis['confidence']
+            'sentiment': sentiment_analysis['overall_sentiment'],
+            'sentiment_score': sentiment_analysis['overall_score'],
+            'confidence': sentiment_analysis['overall_confidence']
         })
         
         analyzed_posts.append(post_data)
+        
+        # For posts with multiple tickers, create individual entries for each ticker
+        if len(sentiment_analysis['tickers']) > 1:
+            analyzed_posts.pop()
+            for ticker in sentiment_analysis['tickers']:
+                ticker_specific_post = post_data.copy()
+                ticker_specific_post['tickers'] = [ticker]  # Set to just this ticker
+                
+                # Update with ticker-specific sentiment data
+                ticker_sentiment = sentiment_analysis['ticker_sentiments'][ticker]
+                ticker_specific_post.update({
+                    'sentiment': ticker_sentiment['sentiment'],
+                    'sentiment_score': ticker_sentiment['score'],
+                    'confidence': ticker_sentiment['confidence']
+                })
+
+                analyzed_posts.append(ticker_specific_post)
     
     return analyzed_posts
 
@@ -157,13 +215,13 @@ def save_analyzed_posts(posts, filename="wsb_sentiment_analysis.csv"):
             'confidence': post['confidence'],
             'upvotes': post['upvotes'],
             'created_at': post['created_at'],
-            'url': post.get('url', '')
+            'url': post['url']
         }
         for post in posts
     ])
     
     # Save to CSV
-    df = df[df['tickers'].notna() & (df['tickers'] != '')]
+    df = df[df['tickers'].notna() & (df['tickers'] != '') & (df['sentiment'] != 'unknown')]
 
     # Remove rows where 'sentiment' is 'Unknown'
     df = df[df['sentiment'] != 'Unknown']
@@ -176,16 +234,6 @@ def save_analyzed_posts(posts, filename="wsb_sentiment_analysis.csv"):
 if __name__ == "__main__":
     print("Analyzing WSB posts from JSON file for stock buy/sell sentiment...")
     analyzed_posts = analyze_from_json("wsb_posts.json")
-    
-    # Print some sample results
-    print("\nSample Results:")
-    for post in analyzed_posts[:5]:
-        if post['tickers']:
-            print(f"Title: {post['title']}")
-            print(f"Tickers: {', '.join(post['tickers'])}")
-            print(f"Sentiment: {post['sentiment'].upper()} with {post['confidence']:.1f}% confidence")
-            print(f"Score: {post['sentiment_score']:.2f}")
-            print("---")
     
     # Save results
     save_analyzed_posts(analyzed_posts)
